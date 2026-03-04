@@ -79,6 +79,7 @@ interface CountRow { count: number }
 const INSECURE_PASSWORDS = new Set([
   'admin',
   'password',
+  'innerway-control',
   'change-me-on-first-login',
   'changeme',
   'testpass123',
@@ -488,21 +489,51 @@ export function logAuditEvent(event: {
   detail?: any
   ip_address?: string
   user_agent?: string
+  workspace_id?: number
 }) {
   const db = getDatabase()
-  db.prepare(`
-    INSERT INTO audit_log (action, actor, actor_id, target_type, target_id, detail, ip_address, user_agent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    event.action,
-    event.actor,
-    event.actor_id ?? null,
-    event.target_type ?? null,
-    event.target_id ?? null,
-    event.detail ? JSON.stringify(event.detail) : null,
-    event.ip_address ?? null,
-    event.user_agent ?? null,
-  )
+  const columns = db.prepare('PRAGMA table_info(audit_log)').all() as Array<{ name: string }>
+  const hasWorkspaceId = columns.some((c) => c.name === 'workspace_id')
+
+  if (hasWorkspaceId) {
+    const resolvedWorkspaceId =
+      typeof event.workspace_id === 'number'
+        ? event.workspace_id
+        : (
+          typeof event.actor_id === 'number' && event.actor_id > 0
+            ? (db.prepare('SELECT workspace_id FROM users WHERE id = ?').get(event.actor_id) as { workspace_id?: number } | undefined)?.workspace_id
+            : undefined
+        ) ?? 1
+
+    db.prepare(`
+      INSERT INTO audit_log (action, actor, actor_id, target_type, target_id, detail, ip_address, user_agent, workspace_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.action,
+      event.actor,
+      event.actor_id ?? null,
+      event.target_type ?? null,
+      event.target_id ?? null,
+      event.detail ? JSON.stringify(event.detail) : null,
+      event.ip_address ?? null,
+      event.user_agent ?? null,
+      resolvedWorkspaceId,
+    )
+  } else {
+    db.prepare(`
+      INSERT INTO audit_log (action, actor, actor_id, target_type, target_id, detail, ip_address, user_agent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.action,
+      event.actor,
+      event.actor_id ?? null,
+      event.target_type ?? null,
+      event.target_id ?? null,
+      event.detail ? JSON.stringify(event.detail) : null,
+      event.ip_address ?? null,
+      event.user_agent ?? null,
+    )
+  }
 
   // Broadcast audit events (webhooks listen here too)
   const securityEvents = ['login_failed', 'user_created', 'user_deleted', 'password_change']

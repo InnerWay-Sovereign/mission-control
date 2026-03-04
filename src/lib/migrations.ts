@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { createHash } from 'crypto'
 import type Database from 'better-sqlite3'
 
 type Migration = {
@@ -752,6 +753,75 @@ const migrations: Migration[] = [
           setProjectCounter.run(counter, project.id)
         }
       }
+    }
+  },
+  {
+    id: '025_workspace_isolation_audit_and_gateways',
+    up: (db) => {
+      const hasTable = (table: string) => {
+        const tableExists = db
+          .prepare(`SELECT 1 as ok FROM sqlite_master WHERE type = 'table' AND name = ?`)
+          .get(table) as { ok?: number } | undefined
+        return !!tableExists?.ok
+      }
+
+      const addWorkspaceIdColumn = (table: string) => {
+        if (!hasTable(table)) return
+
+        const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+        if (!cols.some((c) => c.name === 'workspace_id')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1`)
+        }
+        db.exec(`UPDATE ${table} SET workspace_id = COALESCE(workspace_id, 1)`)
+      }
+
+      addWorkspaceIdColumn('audit_log')
+      addWorkspaceIdColumn('gateways')
+
+      if (hasTable('audit_log')) {
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_log_workspace_id ON audit_log(workspace_id)`)
+      }
+      if (hasTable('gateways')) {
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_gateways_workspace_id ON gateways(workspace_id)`)
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_gateways_workspace_primary ON gateways(workspace_id, is_primary DESC, name ASC)`)
+      }
+    }
+  },
+  {
+    id: '026_api_keys_roles',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_keys (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          key_hash TEXT NOT NULL UNIQUE,
+          key_prefix TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          workspace_id INTEGER NOT NULL DEFAULT 1,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          last_used_at INTEGER
+        )
+      `)
+
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_enabled ON api_keys(enabled)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_workspace_id ON api_keys(workspace_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)`)
+
+      const defaultApiKey = String(process.env.API_KEY || '').trim()
+      if (!defaultApiKey) return
+
+      const workspaceId = (
+        db.prepare(`SELECT id FROM workspaces WHERE slug = 'default' LIMIT 1`).get() as { id?: number } | undefined
+      )?.id || 1
+      const hash = createHash('sha256').update(defaultApiKey).digest('hex')
+      const prefix = defaultApiKey.slice(0, 8)
+
+      db.prepare(`
+        INSERT OR IGNORE INTO api_keys (name, key_hash, key_prefix, role, workspace_id, enabled, created_at, updated_at)
+        VALUES ('Legacy API_KEY', ?, ?, 'admin', ?, 1, (unixepoch()), (unixepoch()))
+      `).run(hash, prefix, workspaceId)
     }
   }
 ]

@@ -22,12 +22,19 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdToke
 
   const payload = await res.json() as any
   const audExpected = String(process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim()
-  if (audExpected && payload.aud !== audExpected) {
+  if (!audExpected) {
+    throw new Error('Google OAuth is not configured')
+  }
+  if (payload.aud !== audExpected) {
     throw new Error('Google token audience mismatch')
   }
 
   if (!payload.email || !payload.sub) {
     throw new Error('Google token missing required identity fields')
+  }
+
+  if (payload.iss && payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+    throw new Error('Google token issuer mismatch')
   }
 
   if (!(payload.email_verified === true || payload.email_verified === 'true')) {

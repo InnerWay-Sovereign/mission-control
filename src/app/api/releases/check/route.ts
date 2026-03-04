@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { APP_VERSION } from '@/lib/version'
+import { requireRole } from '@/lib/auth'
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/builderz-labs/mission-control/releases/latest'
@@ -17,7 +18,10 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = requireRole(request, 'viewer')
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   try {
     const res = await fetch(GITHUB_RELEASES_URL, {
       headers: { Accept: 'application/vnd.github+json' },
@@ -27,7 +31,7 @@ export async function GET() {
     if (!res.ok) {
       return NextResponse.json(
         { updateAvailable: false, currentVersion: APP_VERSION },
-        { headers: { 'Cache-Control': 'public, max-age=3600' } }
+        { headers: { 'Cache-Control': 'private, max-age=3600' } }
       )
     }
 
@@ -43,13 +47,13 @@ export async function GET() {
         releaseUrl: release.html_url ?? '',
         releaseNotes: release.body ?? '',
       },
-      { headers: { 'Cache-Control': 'public, max-age=3600' } }
+      { headers: { 'Cache-Control': 'private, max-age=3600' } }
     )
   } catch {
     // Network error — fail gracefully
     return NextResponse.json(
       { updateAvailable: false, currentVersion: APP_VERSION },
-      { headers: { 'Cache-Control': 'public, max-age=600' } }
+      { headers: { 'Cache-Control': 'private, max-age=600' } }
     )
   }
 }

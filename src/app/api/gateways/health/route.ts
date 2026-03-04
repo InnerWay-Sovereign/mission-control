@@ -4,12 +4,26 @@ import { getDatabase } from "@/lib/db"
 
 interface GatewayEntry {
   id: number
+  workspace_id: number
   name: string
   host: string
   port: number
   token: string
   is_primary: number
   status: string
+}
+
+function ensureWorkspaceScopedGateways(db: ReturnType<typeof getDatabase>) {
+  const tableExists = db
+    .prepare(`SELECT 1 as ok FROM sqlite_master WHERE type = 'table' AND name = 'gateways'`)
+    .get() as { ok?: number } | undefined
+  if (!tableExists?.ok) return
+
+  const cols = db.prepare('PRAGMA table_info(gateways)').all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'workspace_id')) {
+    db.exec('ALTER TABLE gateways ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1')
+    db.exec('UPDATE gateways SET workspace_id = COALESCE(workspace_id, 1)')
+  }
 }
 
 interface HealthResult {
@@ -69,14 +83,19 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const db = getDatabase()
-  const gateways = db.prepare("SELECT * FROM gateways ORDER BY is_primary DESC, name ASC").all() as GatewayEntry[]
+  ensureWorkspaceScopedGateways(db)
+
+  const workspaceId = auth.user.workspace_id ?? 1
+  const gateways = db
+    .prepare("SELECT * FROM gateways WHERE workspace_id = ? ORDER BY is_primary DESC, name ASC")
+    .all(workspaceId) as GatewayEntry[]
 
   // Prepare update statements once (avoids N+1)
   const updateOnlineStmt = db.prepare(
-    "UPDATE gateways SET status = ?, latency = ?, last_seen = (unixepoch()), updated_at = (unixepoch()) WHERE id = ?"
+    "UPDATE gateways SET status = ?, latency = ?, last_seen = (unixepoch()), updated_at = (unixepoch()) WHERE id = ? AND workspace_id = ?"
   )
   const updateOfflineStmt = db.prepare(
-    "UPDATE gateways SET status = ?, latency = NULL, updated_at = (unixepoch()) WHERE id = ?"
+    "UPDATE gateways SET status = ?, latency = NULL, updated_at = (unixepoch()) WHERE id = ? AND workspace_id = ?"
   )
 
   const results: HealthResult[] = []
@@ -106,7 +125,7 @@ export async function POST(request: NextRequest) {
         ? 'OpenClaw 2026.3.2+ defaults tools.profile=messaging; Mission Control should enforce coding profile when spawning.'
         : undefined
 
-      updateOnlineStmt.run(status, latency, gw.id)
+      updateOnlineStmt.run(status, latency, gw.id, workspaceId)
 
       results.push({
         id: gw.id,
@@ -119,7 +138,7 @@ export async function POST(request: NextRequest) {
         compatibility_warning: compatibilityWarning,
       })
     } catch (err: any) {
-      updateOfflineStmt.run("offline", gw.id)
+      updateOfflineStmt.run("offline", gw.id, workspaceId)
 
       results.push({
         id: gw.id,

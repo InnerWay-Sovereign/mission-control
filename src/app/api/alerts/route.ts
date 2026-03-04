@@ -74,6 +74,10 @@ export async function POST(request: NextRequest) {
 
   // Create new rule
   const { name, description, entity_type, condition_field, condition_operator, condition_value, action_type, action_config, cooldown_minutes } = parseResult.data
+  const createFieldError = validateConditionField(entity_type, condition_field)
+  if (createFieldError) {
+    return NextResponse.json({ error: createFieldError }, { status: 400 })
+  }
 
   try {
     const result = db.prepare(`
@@ -95,10 +99,11 @@ export async function POST(request: NextRequest) {
 
     // Audit log
     try {
-      db.prepare('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)').run(
+      db.prepare('INSERT INTO audit_log (action, actor, detail, workspace_id) VALUES (?, ?, ?, ?)').run(
         'alert_rule_created',
         auth.user?.username || 'system',
-        `Created alert rule: ${name}`
+        `Created alert rule: ${name}`,
+        workspaceId
       )
     } catch { /* audit table might not exist */ }
 
@@ -132,6 +137,13 @@ export async function PUT(request: NextRequest) {
     .prepare('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?')
     .get(id, workspaceId) as AlertRule | undefined
   if (!existing) return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
+
+  const effectiveEntityType = typeof updates.entity_type === 'string' ? updates.entity_type : existing.entity_type
+  const effectiveConditionField = typeof updates.condition_field === 'string' ? updates.condition_field : existing.condition_field
+  const updateFieldError = validateConditionField(effectiveEntityType, effectiveConditionField)
+  if (updateFieldError) {
+    return NextResponse.json({ error: updateFieldError }, { status: 400 })
+  }
 
   const allowed = ['name', 'description', 'enabled', 'entity_type', 'condition_field', 'condition_operator', 'condition_value', 'action_type', 'action_config', 'cooldown_minutes']
   const sets: string[] = []
@@ -177,10 +189,11 @@ export async function DELETE(request: NextRequest) {
   const result = db.prepare('DELETE FROM alert_rules WHERE id = ? AND workspace_id = ?').run(id, workspaceId)
 
   try {
-    db.prepare('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)').run(
+    db.prepare('INSERT INTO audit_log (action, actor, detail, workspace_id) VALUES (?, ?, ?, ?)').run(
       'alert_rule_deleted',
       auth.user?.username || 'system',
-      `Deleted alert rule #${id}`
+      `Deleted alert rule #${id}`,
+      workspaceId
     )
   } catch { /* audit table might not exist */ }
 
@@ -326,7 +339,24 @@ const SAFE_COLUMNS: Record<string, Set<string>> = {
   activities: new Set(['type', 'actor', 'entity_type']),
 }
 
+function tableForEntityType(entityType: string): keyof typeof SAFE_COLUMNS | null {
+  switch (entityType) {
+    case 'agent': return 'agents'
+    case 'task': return 'tasks'
+    case 'activity': return 'activities'
+    case 'session': return null
+    default: return null
+  }
+}
+
+function validateConditionField(entityType: string, conditionField: string): string | null {
+  const table = tableForEntityType(entityType)
+  if (!table) return null
+  if (SAFE_COLUMNS[table].has(conditionField)) return null
+  return `Invalid condition_field "${conditionField}" for entity_type "${entityType}"`
+}
+
 function safeColumn(table: string, column: string): string {
   if (SAFE_COLUMNS[table]?.has(column)) return column
-  return 'id' // fallback to safe column
+  throw new Error(`Invalid column "${column}" for table "${table}"`)
 }

@@ -11,9 +11,9 @@ function envFlag(name: string): boolean | undefined {
 
 export function getMcSessionCookieOptions(input: { maxAgeSeconds: number; isSecureRequest?: boolean }): Partial<ResponseCookie> {
   const secureEnv = envFlag('MC_COOKIE_SECURE')
-  // Explicit env wins. Otherwise auto-detect: only set secure if request came over HTTPS.
-  // Falls back to NODE_ENV=production when no request hint is available.
-  const secure = secureEnv ?? input.isSecureRequest ?? process.env.NODE_ENV === 'production'
+  const isProd = process.env.NODE_ENV === 'production'
+  // In production always use secure cookies. In non-production, allow env/request hints.
+  const secure = isProd ? true : (secureEnv ?? input.isSecureRequest ?? false)
 
   // Strict is safest for this app (same-site UI + API), but allow override for edge cases.
   const sameSiteRaw = (process.env.MC_COOKIE_SAMESITE || 'strict').toLowerCase()
@@ -30,4 +30,3 @@ export function getMcSessionCookieOptions(input: { maxAgeSeconds: number; isSecu
     path: '/',
   }
 }
-

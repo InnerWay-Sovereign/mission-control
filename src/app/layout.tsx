@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { ThemeProvider } from 'next-themes'
+import { CsrfFetchBootstrap } from '@/components/security/csrf-fetch-bootstrap'
 import './globals.css'
 
 export const viewport: Viewport = {
@@ -33,6 +34,7 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
+          <CsrfFetchBootstrap />
           <div className="h-screen overflow-hidden bg-background text-foreground">
             {children}
           </div>

@@ -25,6 +25,8 @@ const PROTECTED_GET_ENDPOINTS = [
   '/api/tokens',
   '/api/search?q=test',
   '/api/audit',
+  '/api/docs',
+  '/api/releases/check',
 ]
 
 test.describe('Auth Guards (Issue #4)', () => {
@@ -36,8 +38,9 @@ test.describe('Auth Guards (Issue #4)', () => {
   }
 
   test('GET endpoint returns 200 with valid API key', async ({ request }) => {
+    const apiKey = process.env.API_KEY || 'test-api-key-e2e-12345'
     const res = await request.get('/api/agents', {
-      headers: { 'x-api-key': 'test-api-key-e2e-12345' }
+      headers: { 'x-api-key': apiKey }
     })
     // Should be 200 (or possibly 500 if no gateway configured, but NOT 401)
     expect(res.status()).not.toBe(401)

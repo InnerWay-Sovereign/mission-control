@@ -108,9 +108,10 @@ export async function GET(request: NextRequest) {
     try {
       const audits = db.prepare(`
         SELECT id, action, actor, detail, created_at
-        FROM audit_log WHERE action LIKE ? OR actor LIKE ? OR detail LIKE ?
+        FROM audit_log
+        WHERE workspace_id = ? AND (action LIKE ? OR actor LIKE ? OR detail LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(likeQ, likeQ, likeQ, limit) as any[]
+      `).all(workspaceId, likeQ, likeQ, likeQ, limit) as any[]
       for (const a of audits) {
         results.push({
           type: 'audit',
@@ -130,9 +131,9 @@ export async function GET(request: NextRequest) {
     try {
       const messages = db.prepare(`
         SELECT id, from_agent, to_agent, content, conversation_id, created_at
-        FROM messages WHERE content LIKE ? OR from_agent LIKE ?
+        FROM messages WHERE workspace_id = ? AND (content LIKE ? OR from_agent LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(likeQ, likeQ, limit) as any[]
+      `).all(workspaceId, likeQ, likeQ, limit) as any[]
       for (const m of messages) {
         results.push({
           type: 'message',
@@ -152,9 +153,9 @@ export async function GET(request: NextRequest) {
     try {
       const webhooks = db.prepare(`
         SELECT id, name, url, events, created_at
-        FROM webhooks WHERE name LIKE ? OR url LIKE ?
+        FROM webhooks WHERE workspace_id = ? AND (name LIKE ? OR url LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(likeQ, likeQ, limit) as any[]
+      `).all(workspaceId, likeQ, likeQ, limit) as any[]
       for (const w of webhooks) {
         results.push({
           type: 'webhook',
@@ -173,9 +174,9 @@ export async function GET(request: NextRequest) {
     try {
       const pipelines = db.prepare(`
         SELECT id, name, description, created_at
-        FROM workflow_pipelines WHERE name LIKE ? OR description LIKE ?
+        FROM workflow_pipelines WHERE workspace_id = ? AND (name LIKE ? OR description LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(likeQ, likeQ, limit) as any[]
+      `).all(workspaceId, likeQ, likeQ, limit) as any[]
       for (const p of pipelines) {
         results.push({
           type: 'pipeline',

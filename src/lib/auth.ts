@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { getDatabase } from './db'
 import { hashPassword, verifyPassword } from './password'
 
@@ -76,6 +76,14 @@ interface UserQueryRow {
   password_hash: string
 }
 
+interface ApiKeyRow {
+  id: number
+  name: string | null
+  role: string
+  workspace_id: number
+  enabled: number
+}
+
 // Session management
 const SESSION_DURATION = 7 * 24 * 60 * 60 // 7 days in seconds
 
@@ -87,6 +95,140 @@ function getDefaultWorkspaceId(): number {
   } catch {
     return 1
   }
+}
+
+function normalizeRole(role: unknown): User['role'] {
+  if (role === 'admin' || role === 'operator' || role === 'viewer') {
+    return role
+  }
+  return 'viewer'
+}
+
+function hashApiKey(apiKey: string): string {
+  return createHash('sha256').update(apiKey).digest('hex')
+}
+
+function buildApiUser(input: { role: User['role']; workspaceId?: number; name?: string }): User {
+  const label = input.name?.trim() || 'Key'
+  return {
+    id: 0,
+    username: 'api',
+    display_name: `API Key (${label})`,
+    role: input.role,
+    workspace_id: input.workspaceId || getDefaultWorkspaceId(),
+    created_at: 0,
+    updated_at: 0,
+    last_login_at: null,
+  }
+}
+
+function getApiUserFromDb(apiKey: string): User | null {
+  try {
+    const db = getDatabase()
+    const tableExists = db
+      .prepare(`SELECT 1 as ok FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'`)
+      .get() as { ok?: number } | undefined
+    if (!tableExists?.ok) return null
+
+    const row = db.prepare(`
+      SELECT id, name, role, workspace_id, enabled
+      FROM api_keys
+      WHERE key_hash = ?
+      LIMIT 1
+    `).get(hashApiKey(apiKey)) as ApiKeyRow | undefined
+    if (!row || Number(row.enabled ?? 0) !== 1) return null
+
+    db.prepare(`UPDATE api_keys SET last_used_at = (unixepoch()), updated_at = (unixepoch()) WHERE id = ?`).run(row.id)
+    return buildApiUser({
+      role: normalizeRole(row.role),
+      workspaceId: row.workspace_id,
+      name: row.name || `key-${row.id}`,
+    })
+  } catch {
+    return null
+  }
+}
+
+interface EnvApiKeyMapping {
+  key: string
+  role: User['role']
+  workspaceId?: number
+  name?: string
+}
+
+function parseEnvApiKeyMappings(): EnvApiKeyMapping[] {
+  const raw = String(process.env.MC_API_KEYS || process.env.API_KEYS || '').trim()
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    const mappings: EnvApiKeyMapping[] = []
+
+    // Object format: {"actual-api-key":"viewer"}
+    if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        const normalizedKey = key.trim()
+        if (!normalizedKey) continue
+        const role = normalizeRole(typeof value === 'string' ? value : (value as any)?.role)
+        const workspaceId = typeof (value as any)?.workspace_id === 'number' ? (value as any).workspace_id : undefined
+        const name = typeof (value as any)?.name === 'string' ? (value as any).name : undefined
+        mappings.push({ key: normalizedKey, role, workspaceId, name })
+      }
+      return mappings
+    }
+
+    // Array format: [{"key":"...","role":"operator","workspace_id":1,"name":"CI"}]
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed as Array<Record<string, unknown>>) {
+        if (!entry || typeof entry !== 'object') continue
+        const key = typeof entry.key === 'string' ? entry.key.trim() : ''
+        if (!key) continue
+        const role = normalizeRole(entry.role)
+        const workspaceId = typeof entry.workspace_id === 'number' ? entry.workspace_id : undefined
+        const name = typeof entry.name === 'string' ? entry.name : undefined
+        mappings.push({ key, role, workspaceId, name })
+      }
+      return mappings
+    }
+  } catch {
+    return []
+  }
+
+  return []
+}
+
+function getApiUserFromEnvMappings(apiKey: string): User | null {
+  const mappings = parseEnvApiKeyMappings()
+  for (const mapping of mappings) {
+    if (safeCompare(apiKey, mapping.key)) {
+      return buildApiUser({
+        role: mapping.role,
+        workspaceId: mapping.workspaceId,
+        name: mapping.name || 'env-key',
+      })
+    }
+  }
+  return null
+}
+
+function getApiUserFromLegacyEnv(apiKey: string): User | null {
+  const configuredApiKey = (process.env.API_KEY || '').trim()
+  if (!configuredApiKey) return null
+  if (!safeCompare(apiKey, configuredApiKey)) return null
+  return buildApiUser({
+    role: 'admin',
+    workspaceId: getDefaultWorkspaceId(),
+    name: 'legacy-admin',
+  })
+}
+
+function getApiUserFromApiKey(apiKey: string | null): User | null {
+  if (!apiKey) return null
+  const fromDb = getApiUserFromDb(apiKey)
+  if (fromDb) return fromDb
+  const fromEnvMappings = getApiUserFromEnvMappings(apiKey)
+  if (fromEnvMappings) return fromEnvMappings
+  return getApiUserFromLegacyEnv(apiKey)
 }
 
 export function getWorkspaceIdFromRequest(request: Request): number {
@@ -276,21 +418,9 @@ export function getUserFromRequest(request: Request): User | null {
     if (user) return user
   }
 
-  // Check API key - return synthetic user
-  const configuredApiKey = (process.env.API_KEY || '').trim()
-  const apiKey = extractApiKeyFromHeaders(request.headers)
-  if (configuredApiKey && apiKey && safeCompare(apiKey, configuredApiKey)) {
-    return {
-      id: 0,
-      username: 'api',
-      display_name: 'API Access',
-      role: 'admin',
-      workspace_id: getDefaultWorkspaceId(),
-      created_at: 0,
-      updated_at: 0,
-      last_login_at: null,
-    }
-  }
+  // Check API key - supports role-scoped DB/env keys.
+  const apiUser = getApiUserFromApiKey(extractApiKeyFromHeaders(request.headers))
+  if (apiUser) return apiUser
 
   return null
 }

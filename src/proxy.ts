@@ -56,6 +56,20 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
   return response
 }
 
+function ensureCsrfCookie(request: NextRequest, response: NextResponse): NextResponse {
+  const existing = request.cookies.get('mc-csrf')?.value
+  if (existing && existing.length >= 16) {
+    return response
+  }
+  response.cookies.set('mc-csrf', crypto.randomBytes(32).toString('hex'), {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  })
+  return response
+}
+
 function extractApiKeyFromRequest(request: NextRequest): string {
   const direct = (request.headers.get('x-api-key') || '').trim()
   if (direct) return direct
@@ -83,14 +97,15 @@ export function proxy(request: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean)
 
-  const enforceAllowlist = !allowAnyHost && allowedPatterns.length > 0
-  const isAllowedHost = !enforceAllowlist || allowedPatterns.some((p) => hostMatches(p, hostName))
+  const isAllowedHost = allowAnyHost || (allowedPatterns.length > 0 && allowedPatterns.some((p) => hostMatches(p, hostName)))
 
   if (!isAllowedHost) {
     return new NextResponse('Forbidden', { status: 403 })
   }
 
   const { pathname } = request.nextUrl
+  const apiKey = extractApiKeyFromRequest(request)
+  const hasPresentedApiKey = Boolean(apiKey)
 
   // CSRF Origin validation for mutating requests
   const method = request.method.toUpperCase()
@@ -103,14 +118,24 @@ export function proxy(request: NextRequest) {
         || request.nextUrl.host
         || ''
       if (originHost && requestHost && originHost !== requestHost) {
-        return NextResponse.json({ error: 'CSRF origin mismatch' }, { status: 403 })
+        return ensureCsrfCookie(request, NextResponse.json({ error: 'CSRF origin mismatch' }, { status: 403 }))
+      }
+    }
+
+    // Double-submit CSRF for browser-origin mutating API requests using cookie auth.
+    // API-key requests are non-cookie auth and are exempt.
+    if (origin && pathname.startsWith('/api/') && !hasPresentedApiKey) {
+      const csrfCookie = request.cookies.get('mc-csrf')?.value || ''
+      const csrfHeader = (request.headers.get('x-csrf-token') || '').trim()
+      if (!csrfCookie || !csrfHeader || !safeCompare(csrfCookie, csrfHeader)) {
+        return ensureCsrfCookie(request, NextResponse.json({ error: 'CSRF token mismatch' }, { status: 403 }))
       }
     }
   }
 
-  // Allow login page, auth API, and docs without session
-  if (pathname === '/login' || pathname.startsWith('/api/auth/') || pathname === '/api/docs' || pathname === '/docs') {
-    return applySecurityHeaders(NextResponse.next())
+  // Allow login page and auth APIs without an existing session
+  if (pathname === '/login' || pathname.startsWith('/api/auth/')) {
+    return ensureCsrfCookie(request, applySecurityHeaders(NextResponse.next()))
   }
 
   // Check for session cookie
@@ -118,25 +143,24 @@ export function proxy(request: NextRequest) {
 
   // API routes: accept session cookie OR API key
   if (pathname.startsWith('/api/')) {
-    const configuredApiKey = (process.env.API_KEY || '').trim()
-    const apiKey = extractApiKeyFromRequest(request)
-    const hasValidApiKey = Boolean(configuredApiKey && apiKey && safeCompare(apiKey, configuredApiKey))
-    if (sessionToken || hasValidApiKey) {
-      return applySecurityHeaders(NextResponse.next())
+    // Accept any presented API key here; route-level auth resolves and validates
+    // scoped keys (DB/env mappings) and enforces role requirements.
+    if (sessionToken || hasPresentedApiKey) {
+      return ensureCsrfCookie(request, applySecurityHeaders(NextResponse.next()))
     }
 
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return ensureCsrfCookie(request, NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
   }
 
   // Page routes: redirect to login if no session
   if (sessionToken) {
-    return applySecurityHeaders(NextResponse.next())
+    return ensureCsrfCookie(request, applySecurityHeaders(NextResponse.next()))
   }
 
   // Redirect to login
   const loginUrl = request.nextUrl.clone()
   loginUrl.pathname = '/login'
-  return NextResponse.redirect(loginUrl)
+  return ensureCsrfCookie(request, NextResponse.redirect(loginUrl))
 }
 
 export const config = {

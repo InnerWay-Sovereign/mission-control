@@ -14,13 +14,17 @@ describe('verifyGoogleIdToken', () => {
   })
 
   it('rejects unverified emails', async () => {
+    const prevGoogle = process.env.GOOGLE_CLIENT_ID
+    process.env.GOOGLE_CLIENT_ID = 'expected'
+
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
-      json: async () => ({ aud: 'x', email: 'user@example.com', sub: 'sub', email_verified: false }),
+      json: async () => ({ aud: 'expected', email: 'user@example.com', sub: 'sub', email_verified: false }),
     } as any)))
 
     await expect(verifyGoogleIdToken('t')).rejects.toThrow(/not verified/i)
     vi.unstubAllGlobals()
+    process.env.GOOGLE_CLIENT_ID = prevGoogle
   })
 
   it('rejects audience mismatch when GOOGLE_CLIENT_ID is set', async () => {
@@ -38,16 +42,40 @@ describe('verifyGoogleIdToken', () => {
     process.env.GOOGLE_CLIENT_ID = prev
   })
 
-  it('returns payload for valid tokens', async () => {
+  it('rejects when Google client ID is not configured', async () => {
     const prevGoogle = process.env.GOOGLE_CLIENT_ID
     const prevPublic = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
-    // This repo may have these set via local `.env`; clear them for a deterministic test.
     process.env.GOOGLE_CLIENT_ID = ''
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID = ''
 
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
-      json: async () => ({ aud: 'x', email: 'user@example.com', sub: 'sub', email_verified: 'true', name: 'User' }),
+      json: async () => ({ aud: 'x', email: 'user@example.com', sub: 'sub', email_verified: true }),
+    } as any)))
+
+    await expect(verifyGoogleIdToken('t')).rejects.toThrow(/not configured/i)
+
+    vi.unstubAllGlobals()
+    process.env.GOOGLE_CLIENT_ID = prevGoogle
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID = prevPublic
+  })
+
+  it('returns payload for valid tokens', async () => {
+    const prevGoogle = process.env.GOOGLE_CLIENT_ID
+    const prevPublic = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+    process.env.GOOGLE_CLIENT_ID = 'expected-client-id'
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID = ''
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        aud: 'expected-client-id',
+        iss: 'https://accounts.google.com',
+        email: 'user@example.com',
+        sub: 'sub',
+        email_verified: 'true',
+        name: 'User',
+      }),
     } as any)))
 
     await expect(verifyGoogleIdToken('t')).resolves.toMatchObject({
