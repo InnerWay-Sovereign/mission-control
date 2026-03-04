@@ -136,7 +136,7 @@ export function MultiGatewayPanel() {
         <div>
           <h2 className="text-lg font-semibold text-foreground">Gateway Manager</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage multiple OpenClaw gateway connections
+            Manage multiple InnerWay gateway connections
           </p>
         </div>
         <div className="flex items-center gap-2">

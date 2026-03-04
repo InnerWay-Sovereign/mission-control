@@ -173,7 +173,7 @@ export function LogViewerPanel() {
       <div className="border-b border-border pb-4">
         <h1 className="text-3xl font-bold text-foreground">Log Viewer</h1>
         <p className="text-muted-foreground mt-2">
-          Real-time streaming logs from ClawdBot gateway and system
+          Real-time streaming logs from InnerWay gateway and system
         </p>
       </div>
 

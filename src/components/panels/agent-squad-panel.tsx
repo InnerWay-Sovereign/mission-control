@@ -584,7 +584,7 @@ function CreateAgentModal({
                 value={formData.session_key}
                 onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
                 className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="ClawdBot session identifier"
+                placeholder="InnerWay session identifier"
               />
             </div>
             

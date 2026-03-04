@@ -252,7 +252,7 @@ export function OverviewTab({
               value={formData.session_key}
               onChange={(e) => setFormData((prev: any) => ({ ...prev, session_key: e.target.value }))}
               className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-              placeholder="OpenClaw session identifier"
+              placeholder="InnerWay session identifier"
             />
           ) : (
             <div className="flex items-center gap-2">
@@ -1157,7 +1157,7 @@ export function CreateAgentModal({
                   value={formData.session_key}
                   onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
                   className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  placeholder="OpenClaw session identifier"
+                  placeholder="InnerWay session identifier"
                 />
               </div>
             </div>
@@ -1197,7 +1197,7 @@ export function CreateAgentModal({
                   onChange={(e) => setFormData(prev => ({ ...prev, write_to_gateway: e.target.checked }))}
                   className="w-4 h-4 rounded border-border"
                 />
-                <span className="text-sm text-foreground">Add to gateway config (openclaw.json)</span>
+                <span className="text-sm text-foreground">Add to gateway config (innerway.json)</span>
               </label>
             </div>
           )}
@@ -1391,7 +1391,7 @@ export function ConfigTab({
   return (
     <div className="p-6 space-y-4">
       <div className="flex justify-between items-center">
-        <h4 className="text-lg font-medium text-foreground">OpenClaw Config</h4>
+        <h4 className="text-lg font-medium text-foreground">InnerWay Config</h4>
         <div className="flex gap-2">
           <button
             onClick={() => setShowJson(!showJson)}
@@ -1418,7 +1418,7 @@ export function ConfigTab({
 
       {config.openclawId && (
         <div className="text-xs text-muted-foreground">
-          OpenClaw ID: <span className="font-mono text-foreground">{config.openclawId}</span>
+          InnerWay ID: <span className="font-mono text-foreground">{config.openclawId}</span>
           {config.isDefault && <span className="ml-2 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">Default</span>}
         </div>
       )}

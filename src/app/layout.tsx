@@ -11,7 +11,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: 'Mission Control',
-  description: 'OpenClaw Agent Orchestration Dashboard',
+  description: 'InnerWay Agent Orchestration Dashboard',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

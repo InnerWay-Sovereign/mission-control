@@ -16,7 +16,8 @@
     "test:e2e:openclaw:gateway": "E2E_GATEWAY_EXPECTED=1 playwright test -c playwright.openclaw.gateway.config.ts",
     "test:e2e:openclaw": "pnpm test:e2e:openclaw:local && pnpm test:e2e:openclaw:gateway",
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e",
-    "quality:gate": "pnpm test:all"
+    "quality:gate": "pnpm test:all",
+    "seed-agents": "node scripts/seed-innerway-agents.mjs"
   },
   "dependencies": {
     "@scalar/api-reference-react": "^0.8.66",
