@@ -2,12 +2,16 @@ import crypto from 'node:crypto'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-/** Constant-time string comparison using Node.js crypto. */
+/** Constant-time string comparison using Node.js crypto. Does not leak length via timing. */
 function safeCompare(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false
   const bufA = Buffer.from(a)
   const bufB = Buffer.from(b)
-  if (bufA.length !== bufB.length) return false
+  if (bufA.length !== bufB.length) {
+    // Compare against dummy to prevent length-based timing side-channel
+    crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length))
+    return false
+  }
   return crypto.timingSafeEqual(bufA, bufB)
 }
 

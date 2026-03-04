@@ -52,8 +52,8 @@ export function createRateLimiter(options: RateLimiterOptions) {
   if (cleanupInterval.unref) cleanupInterval.unref()
 
   return function checkRateLimit(request: Request): NextResponse | null {
-    // Allow disabling non-critical rate limiting for E2E tests
-    if (process.env.MC_DISABLE_RATE_LIMIT === '1' && !options.critical) return null
+    // Allow disabling non-critical rate limiting for E2E tests only — never in production
+    if (process.env.MC_DISABLE_RATE_LIMIT === '1' && process.env.NODE_ENV === 'test' && !options.critical) return null
     const ip = extractClientIp(request)
     const now = Date.now()
     const entry = store.get(ip)

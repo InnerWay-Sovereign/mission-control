@@ -65,10 +65,16 @@ export async function PUT(request: NextRequest) {
   if ('error' in result) return result.error
   const body = result.data
 
-  // Block writes to sensitive paths
-  const blockedPaths = ['gateway.auth.password', 'gateway.auth.secret']
+  // Block writes to all auth and security-sensitive paths
+  const blockedPaths = [
+    'gateway.auth',           // covers .password, .secret, .token, .apiKey, etc.
+    'gateway.security',
+    'gateway.controlUi.allowedOrigins',
+    'gateway.controlUi.allowedHosts',
+    'gateway.tls',
+  ]
   for (const key of Object.keys(body.updates)) {
-    if (blockedPaths.some(bp => key.startsWith(bp))) {
+    if (blockedPaths.some(bp => key === bp || key.startsWith(bp + '.'))) {
       return NextResponse.json({ error: `Cannot modify protected field: ${key}` }, { status: 403 })
     }
   }

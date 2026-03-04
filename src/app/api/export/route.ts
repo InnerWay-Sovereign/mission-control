@@ -53,7 +53,10 @@ export async function GET(request: NextRequest) {
 
   switch (type) {
     case 'audit': {
-      rows = db.prepare(`SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      const auditConditions = [...conditions, 'workspace_id = ?']
+      const auditParams = [...params, workspaceId]
+      const auditWhere = `WHERE ${auditConditions.join(' AND ')}`
+      rows = db.prepare(`SELECT * FROM audit_log ${auditWhere} ORDER BY created_at DESC LIMIT ?`).all(...auditParams, limit)
       headers = ['id', 'action', 'actor', 'actor_id', 'target_type', 'target_id', 'detail', 'ip_address', 'user_agent', 'created_at']
       filename = 'audit-log'
       break
@@ -77,7 +80,10 @@ export async function GET(request: NextRequest) {
       break
     }
     case 'pipelines': {
-      rows = db.prepare(`SELECT pr.*, wp.name as pipeline_name FROM pipeline_runs pr LEFT JOIN workflow_pipelines wp ON pr.pipeline_id = wp.id ${where ? where.replace('created_at', 'pr.created_at') : ''} ORDER BY pr.created_at DESC LIMIT ?`).all(...params, limit)
+      const pipelineConditions = [...conditions.map(c => c.replace('created_at', 'pr.created_at')), 'pr.workspace_id = ?']
+      const pipelineParams = [...params, workspaceId]
+      const pipelineWhere = `WHERE ${pipelineConditions.join(' AND ')}`
+      rows = db.prepare(`SELECT pr.*, wp.name as pipeline_name FROM pipeline_runs pr LEFT JOIN workflow_pipelines wp ON pr.pipeline_id = wp.id ${pipelineWhere} ORDER BY pr.created_at DESC LIMIT ?`).all(...pipelineParams, limit)
       headers = ['id', 'pipeline_id', 'pipeline_name', 'status', 'current_step', 'steps_snapshot', 'started_at', 'completed_at', 'triggered_by', 'created_at']
       filename = 'pipeline-runs'
       break
